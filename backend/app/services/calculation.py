@@ -33,6 +33,31 @@ def calculate_projection(request: SimulationRequest, years: int = 30, simulation
     drift = (mu - 0.5 * sigma**2) * dt
     diffusion = sigma * np.sqrt(dt)
     
+    # 3a. Calculate Deterministic Shock Path
+    # Year 0-5: Moderate growth (mu)
+    # Year 5 (month 60): -40% Shock
+    # Year 5+: Recovery (slightly higher mu for bounce back effect or just normal mu)
+    
+    shock_path = np.zeros(n_steps + 1)
+    shock_path[0] = request.initial_assets
+    
+    current_val = request.initial_assets
+    shock_month = 5 * 12
+    
+    for t in range(n_steps):
+        # Contribution
+        current_val += monthly_inv
+        
+        # Growth
+        if t == shock_month:
+             # The Shock! -40% instant drop in value *after* contribution
+             current_val = current_val * 0.60
+        else:
+             # Normal deterministic growth (expected return)
+             current_val = current_val * np.exp(mu * dt)
+             
+        shock_path[t+1] = current_val
+    
     for t in range(n_steps):
         growth = np.exp(drift + diffusion * random_shocks[:, t])
         assets[:, t+1] = assets[:, t] * growth + monthly_inv
@@ -48,7 +73,8 @@ def calculate_projection(request: SimulationRequest, years: int = 30, simulation
         age=request.age,
         p10=int(request.initial_assets),
         p50=int(request.initial_assets),
-        p90=int(request.initial_assets)
+        p90=int(request.initial_assets),
+        shock=int(request.initial_assets)
     ))
     
     for i, month_idx in enumerate(yearly_indices):
@@ -60,12 +86,16 @@ def calculate_projection(request: SimulationRequest, years: int = 30, simulation
         p50 = np.percentile(year_assets, 50)
         p90 = np.percentile(year_assets, 90)
         
+        # Get shock value
+        shock_val = shock_path[month_idx]
+        
         results.append(SimulationPoint(
             year=current_year,
             age=request.age + current_year,
             p10=int(p10),
             p50=int(p50),
-            p90=int(p90)
+            p90=int(p90),
+            shock=int(shock_val)
         ))
         
     return results
